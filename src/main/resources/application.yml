@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: catalog-service
+  datasource:
+    # Defaults servem só para "mvn spring-boot:run" local. Em cluster (k8s/app-deployment.yaml),
+    # SPRING_DATASOURCE_URL/DB_USERNAME/DB_PASSWORD vêm de env var ligada a Secret — nunca texto
+    # puro committed.
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/catalog}
+    username: ${DB_USERNAME:catalog}
+    password: ${DB_PASSWORD:catalog}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: 8080

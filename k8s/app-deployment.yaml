@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cliente
+  namespace: demo-apps
+  labels:
+    app: cliente
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cliente
+  template:
+    metadata:
+      labels:
+        app: cliente
+    spec:
+      # Espera a porta do banco abrir antes de subir a app — sem isso, MySQL (mais lento pra
+      # inicializar que o Postgres na primeira subida) causa CrashLoopBackOff transitório: a app
+      # tenta conectar, leva Connection refused, o container morre e o Kubernetes reinicia (some
+      # sozinho em poucos segundos, mas é evitável). Achado real de execução (testes por amostragem
+      # desta PoC — dois combos MySQL reiniciaram uma vez antes deste fix).
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z -w2 cliente-db 5432; do echo "aguardando banco..."; sleep 2; done']
+      containers:
+        - name: app
+          image: cliente:local
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://cliente-db:5432/catalog
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: cliente-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cliente-db
+                  key: password
+          resources:
+            requests:
+              cpu: 200m
+              memory: 384Mi
+            limits:
+              cpu: 800m
+              memory: 768Mi

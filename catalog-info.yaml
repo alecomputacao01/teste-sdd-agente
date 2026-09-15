@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: cliente
+  description: Serviço gerado pela PoC Backstage + ArchUnit
+  annotations:
+    github.com/project-slug: alecomputacao01/teste-sdd-agente
+  tags:
+    - java
+    - spring-boot-4
+    - postgresql
+    - hexagonal
+    - agent-assisted
+spec:
+  type: service
+  lifecycle: experimental
+  owner: guests

@@ -1,0 +1,68 @@
+name: build-and-archunit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test-archunit:
+    runs-on: ubuntu-latest
+    # Sem "services: postgres" aqui de propósito: o teste de integração usa Testcontainers
+    # (PostgreSQLContainer efêmero via Docker-in-Docker, já suportado nativamente em ubuntu-latest),
+    # não um container de serviço fixo — os dois mecanismos seriam redundantes.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Testes unitários e de aplicação (TDD)
+        run: mvn -B test -Dtest='!*IT,!*ArchitectureTest'
+
+      - name: Testes de integração (Testcontainers)
+        run: mvn -B test -Dtest='*IT'
+
+      - name: Validação arquitetural (ArchUnit)
+        run: mvn -B test -Dtest='*ArchitectureTest'
+
+  # Roda no runner self-hosted dentro do minikube local (validacao-archunit/ci-runner) — o
+  # ubuntu-latest hospedado não tem caminho de rede até o cluster. Só em push direto a main, não em
+  # PR (evita deploy de código ainda não revisado).
+  deploy:
+    needs: build-test-archunit
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, minikube-local]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lê o nome direto do manifest já gerado (k8s/app-deployment.yaml) em vez de assumir que o
+      # nome do repositório GitHub bate com o component_name/artifactId — nem sempre bate (o
+      # usuário escolhe o nome do repo separadamente no formulário do Backstage), e essa suposição
+      # já quebrou um deploy real aqui (imagem com tag errada + secret com nome errado).
+      - name: Descobrir nome do componente (a partir do manifest gerado)
+        id: component
+        run: echo "name=$(grep -m1 '^  name:' k8s/app-deployment.yaml | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Build da imagem (docker.sock do node, montado no runner)
+        run: docker build -t ${{ steps.component.outputs.name }}:local .
+
+      - name: Secret do banco (a partir de GitHub Actions secrets — nunca committed em texto puro)
+        run: |
+          kubectl create secret generic ${{ steps.component.outputs.name }}-db -n demo-apps \
+            --from-literal=username="${{ secrets.DB_USERNAME }}" \
+            --from-literal=password="${{ secrets.DB_PASSWORD }}" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy no namespace demo-apps
+        run: |
+          kubectl apply -n demo-apps -f k8s/
+          # A tag da imagem é fixa (${{ steps.component.outputs.name }}:local, imagePullPolicy: Never) — o "kubectl apply" sozinho não
+          # detecta mudança de spec quando só o conteúdo da imagem muda, então o pod antigo continuaria
+          # rodando o jar/artefato antigo sem este restart forçado.
+          kubectl rollout restart deployment/${{ steps.component.outputs.name }} -n demo-apps
+          kubectl rollout status deployment/${{ steps.component.outputs.name }} -n demo-apps --timeout=120s

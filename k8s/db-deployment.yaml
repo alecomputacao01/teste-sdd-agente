@@ -1,0 +1,53 @@
+# Postgres 16 (mesma versão de plan.md RF-001b). Credenciais vêm do Secret
+# "cliente-db" — criado pelo job "deploy" do workflow a partir de GitHub
+# Actions secrets (DB_USERNAME/DB_PASSWORD), nunca committed em texto puro neste diretório.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cliente-db
+  namespace: demo-apps
+  labels:
+    app: cliente-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cliente-db
+  template:
+    metadata:
+      labels:
+        app: cliente-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_DB
+              value: catalog
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: cliente-db
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: cliente-db
+                  key: password
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cliente-db-pvc
